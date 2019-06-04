@@ -26,7 +26,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   """
 
   @spec parse_repo([term]) :: [Ecto.Repo.t()]
-  def parse_repo(args) do
+  defp parse_repo(args) do
     parse_repo(args, [])
   end
 
@@ -68,11 +68,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     Enum.reverse(acc)
   end
 
-  @doc """
-  Ensures the given module is a repository.
-  """
-  @spec ensure_repo(module, list) :: Ecto.Repo.t() | no_return
-  def ensure_repo(repo, args) do
+  defp ensure_repo(repo, args) do
     Mix.Task.run("loadpaths", args)
 
     unless "--no-compile" in args do
@@ -98,17 +94,11 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end
   end
 
-  @doc """
-  Ensures the given repository is started and running.
-  """
-  @spec ensure_started(Ecto.Repo.t(), Keyword.t()) :: {:ok, pid, [atom]} | no_return
-  def ensure_started(repo, opts) do
+  defp ensure_started(repo, opts) do
     {:ok, _} = Application.ensure_all_started(:ecto)
     {:ok, apps} = repo.__adapter__.ensure_all_started(repo, :temporary)
 
-    pool_size = Keyword.get(opts, :pool_size, 1)
-
-    case repo.start_link(pool_size: pool_size) do
+    case repo.start_link(pool_size: Keyword.get(opts, :pool_size, 1)) do
       {:ok, pid} ->
         {:ok, pid, apps}
 
@@ -118,13 +108,6 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
       {:error, error} ->
         Mix.raise("Could not start repo #{inspect(repo)}, error: #{inspect(error)}")
     end
-  end
-
-  @doc """
-  Returns the private repository path relative to the source.
-  """
-  def source_repo_priv(repo) do
-    repo.config()[:priv] || "priv/#{repo |> Module.split() |> List.last() |> Macro.underscore()}"
   end
 
   @doc false
@@ -148,7 +131,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end)
   end
 
-  def generate_models(driver, repo) when driver == @mysql do
+  defp generate_models(driver, repo) when driver == @mysql do
     with config <- repo.config,
          true <- Keyword.keyword?(config),
          {:ok, database} <- Keyword.fetch(config, :database) do
@@ -187,7 +170,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end
   end
 
-  def generate_models(driver, repo) when driver == @postgres do
+  defp generate_models(driver, repo) when driver == @postgres do
     {:ok, result} =
       repo.query("""
       SELECT table_name
@@ -219,21 +202,22 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
       columns =
         Enum.map(description.rows, fn [column_name, column_type] ->
           found =
-            Enum.find(List.flatten(primary_keys.rows), {:not_found}, fn x -> x == column_name end)
+            primary_keys.rows
+            |> List.flatten()
+            |> Enum.find(nil, &(&1 == column_name))
 
-          case found do
-            {:not_found} ->
-              {column_name, get_type(List.first(String.split(String.downcase(column_type)))), nil}
-
-            _ ->
-              {column_name, get_type(column_type), true}
+          if found == nil do
+            [column_type | _] = column_type |> String.downcase() |> String.split()
+            {column_name, get_type(column_type), nil}
+          else
+            {column_name, get_type(column_type), true}
           end
         end)
 
       content =
         @template
         |> EEx.eval_string(
-          app: Mix.Project.config()[:app] |> Atom.to_string() |> String.capitalize(),
+          app: Mix.Project.config()[:app] |> Atom.to_string() |> Macro.camelize(),
           table: table,
           module_name: to_camelcase(table),
           columns: columns
@@ -243,7 +227,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end)
   end
 
-  def generate_models(driver, repo) do
+  defp generate_models(driver, repo) do
     IO.puts("#{driver} is not yet implemented inspect #{repo}")
   end
 
@@ -275,6 +259,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp get_type("longtext"), do: ":string"
   defp get_type("mediumint"), do: ":integer"
   defp get_type("mediumtext"), do: ":string"
+  defp get_type("numeric"), do: "Decimal"
   defp get_type("real"), do: ":float"
   defp get_type("smallint"), do: ":integer"
   defp get_type("text"), do: ":string"
