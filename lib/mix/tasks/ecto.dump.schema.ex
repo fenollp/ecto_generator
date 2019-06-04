@@ -270,6 +270,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp get_type("varchar"), do: ":string"
   defp get_type("year"), do: ":string"
 
+  # TODO: allow user-defined behavior here
+  defp get_type("user-defined"), do: ":string"
+
   # defp get_type(type) do
   #   IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
   #   ":string"
