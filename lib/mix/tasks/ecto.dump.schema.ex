@@ -244,13 +244,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   end
 
   defp write_model(table, content) do
-    app_name = Mix.Project.config()[:app] |> Atom.to_string()
-    filename = "lib/" <> app_name <> "_web/models/" <> table <> ".ex"
-    File.rm(filename)
-    {:ok, file} = File.open(filename, [:write])
-    IO.binwrite(file, content)
-    File.close(file)
-
+    filename = "lib/#{Mix.Project.config()[:app]}/models/#{table}.ex"
+    filename |> Path.dirname() |> File.mkdir_p!()
+    filename |> File.write!(content)
     IO.puts("\e[0;35m  #{filename} was generated")
   end
 
