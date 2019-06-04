@@ -258,35 +258,35 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     Enum.map_join(String.split(table_name, "_"), "", &String.capitalize(&1))
   end
 
+  defp get_type("bigint"), do: ":integer"
+  defp get_type("bit varying"), do: ":boolean"
+  defp get_type("bit"), do: ":boolean"
+  defp get_type("blob"), do: ":binary"
+  defp get_type("boolean"), do: ":boolean"
+  defp get_type("char"), do: ":string"
+  defp get_type("character"), do: ":string"
+  defp get_type("date"), do: "Date"
+  defp get_type("datetime"), do: "DateTime"
+  defp get_type("decimal"), do: ":float"
+  defp get_type("double"), do: ":float"
+  defp get_type("float"), do: ":float"
   defp get_type("int"), do: ":integer"
   defp get_type("integer"), do: ":integer"
-  defp get_type("bigint"), do: ":integer"
-  defp get_type("mediumint"), do: ":integer"
-  defp get_type("smallint"), do: ":integer"
-  defp get_type("tinyint"), do: ":integer"
-  defp get_type("varchar"), do: ":string"
-  defp get_type("text"), do: ":string"
-  defp get_type("char"), do: ":string"
-  defp get_type("year"), do: ":string"
-  defp get_type("mediumtext"), do: ":string"
   defp get_type("longtext"), do: ":string"
-  defp get_type("tinytext"), do: ":string"
-  defp get_type("character"), do: ":string"
-  defp get_type("decimal"), do: ":float"
-  defp get_type("float"), do: ":float"
-  defp get_type("double"), do: ":float"
+  defp get_type("mediumint"), do: ":integer"
+  defp get_type("mediumtext"), do: ":string"
   defp get_type("real"), do: ":float"
-  defp get_type("boolean"), do: ":boolean"
-  defp get_type("bit"), do: ":boolean"
-  defp get_type("bit varying"), do: ":boolean"
-  defp get_type("datetime"), do: "DateTime"
-  defp get_type("timestamp"), do: "DateTime"
-  defp get_type("date"), do: "DateTime"
+  defp get_type("smallint"), do: ":integer"
+  defp get_type("text"), do: ":string"
   defp get_type("time"), do: "DateTime"
-  defp get_type("blob"), do: ":binary"
+  defp get_type("timestamp"), do: "DateTime"
+  defp get_type("tinyint"), do: ":integer"
+  defp get_type("tinytext"), do: ":string"
+  defp get_type("varchar"), do: ":string"
+  defp get_type("year"), do: ":string"
 
-  defp get_type(type) do
-    IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
-    ":string"
-  end
+  # defp get_type(type) do
+  #   IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
+  #   ":string"
+  # end
 end
