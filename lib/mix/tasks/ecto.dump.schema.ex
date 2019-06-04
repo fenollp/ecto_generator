@@ -129,9 +129,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
   @doc false
   def run(args) do
-    repos = parse_repo(args)
-
-    Enum.each(repos, fn repo ->
+    args
+    |> parse_repo()
+    |> Enum.each(fn repo ->
       ensure_repo(repo, [])
       ensure_started(repo, [])
 
@@ -142,7 +142,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
         |> String.split(".")
         |> List.last()
 
-      IO.puts(driver)
+      IO.puts("Driver: #{driver}")
 
       generate_models(driver, repo)
     end)
@@ -153,17 +153,20 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
          true <- Keyword.keyword?(config),
          {:ok, database} <- Keyword.fetch(config, :database) do
       {:ok, result} =
-        repo.query(
-          "SELECT table_name FROM information_schema.tables WHERE table_schema = '#{database}'"
-        )
+        repo.query("""
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = '#{database}'
+        """)
 
       Enum.each(result.rows, fn [table] ->
         {:ok, description} =
-          repo.query(
-            "SELECT COLUMN_NAME, DATA_TYPE, CASE WHEN `COLUMN_KEY` = 'PRI' THEN '1' ELSE NULL END AS primary_key FROM information_schema.columns WHERE table_name= '#{
-              table
-            }' and table_schema='#{database}'"
-          )
+          repo.query("""
+          SELECT COLUMN_NAME, DATA_TYPE, CASE WHEN `COLUMN_KEY` = 'PRI' THEN '1' ELSE NULL END AS primary_key
+          FROM information_schema.columns
+          WHERE table_name= '#{table}'
+          AND table_schema='#{database}'
+          """)
 
         columns =
           Enum.map(description.rows, fn [column_name, column_type, is_primary] ->
@@ -171,7 +174,8 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
           end)
 
         content =
-          EEx.eval_string(@template,
+          @template
+          |> EEx.eval_string(
             app: Mix.Project.config()[:app] |> Atom.to_string() |> String.capitalize(),
             table: table,
             module_name: to_camelcase(table),
@@ -197,7 +201,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
         SELECT c.column_name
         FROM information_schema.table_constraints tc
         JOIN information_schema.constraint_column_usage AS ccu
-                 USING (constraint_schema, constraint_name)
+        USING (constraint_schema, constraint_name)
         JOIN information_schema.columns AS c ON c.table_schema = tc.constraint_schema
         AND tc.table_name = c.table_name
         AND ccu.column_name = c.column_name
@@ -254,39 +258,35 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     Enum.map_join(String.split(table_name, "_"), "", &String.capitalize(&1))
   end
 
-  defp get_type(row) do
-    case row do
-      type when type in ["int", "integer", "bigint", "mediumint", "smallint", "tinyint"] ->
-        ":integer"
+  defp get_type("int"), do: ":integer"
+  defp get_type("integer"), do: ":integer"
+  defp get_type("bigint"), do: ":integer"
+  defp get_type("mediumint"), do: ":integer"
+  defp get_type("smallint"), do: ":integer"
+  defp get_type("tinyint"), do: ":integer"
+  defp get_type("varchar"), do: ":string"
+  defp get_type("text"), do: ":string"
+  defp get_type("char"), do: ":string"
+  defp get_type("year"), do: ":string"
+  defp get_type("mediumtext"), do: ":string"
+  defp get_type("longtext"), do: ":string"
+  defp get_type("tinytext"), do: ":string"
+  defp get_type("character"), do: ":string"
+  defp get_type("decimal"), do: ":float"
+  defp get_type("float"), do: ":float"
+  defp get_type("double"), do: ":float"
+  defp get_type("real"), do: ":float"
+  defp get_type("boolean"), do: ":boolean"
+  defp get_type("bit"), do: ":boolean"
+  defp get_type("bit varying"), do: ":boolean"
+  defp get_type("datetime"), do: "DateTime"
+  defp get_type("timestamp"), do: "DateTime"
+  defp get_type("date"), do: "DateTime"
+  defp get_type("time"), do: "DateTime"
+  defp get_type("blob"), do: ":binary"
 
-      type
-      when type in [
-             "varchar",
-             "text",
-             "char",
-             "year",
-             "mediumtext",
-             "longtext",
-             "tinytext",
-             "character"
-           ] ->
-        ":string"
-
-      type when type in ["decimal", "float", "double", "real"] ->
-        ":float"
-
-      type when type in ["boolean", "bit", "bit varying"] ->
-        ":boolean"
-
-      type when type in ["datetime", "timestamp", "date", "time"] ->
-        "Ecto.DateTime"
-
-      type when type in ["blob"] ->
-        ":binary"
-
-      type ->
-        IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
-        ":string"
-    end
+  defp get_type(type) do
+    IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
+    ":string"
   end
 end
