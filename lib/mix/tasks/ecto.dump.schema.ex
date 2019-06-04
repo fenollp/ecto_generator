@@ -185,22 +185,32 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
   def generate_models(driver, repo) when driver == @postgres do
     {:ok, result} =
-      repo.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+      repo.query("""
+      SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+      """)
 
     Enum.each(result.rows, fn [table] ->
       {:ok, primary_keys} =
-        repo.query(
-          "SELECT c.column_name FROM information_schema.table_constraints tc JOIN information_schema.constraint_column_usage AS ccu USING (constraint_schema, constraint_name) JOIN information_schema.columns AS c ON c.table_schema = tc.constraint_schema AND tc.table_name = c.table_name AND ccu.column_name = c.column_name where constraint_type = 'PRIMARY KEY' and tc.table_name = '#{
-            table
-          }'"
-        )
+        repo.query("""
+        SELECT c.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.constraint_column_usage AS ccu
+                 USING (constraint_schema, constraint_name)
+        JOIN information_schema.columns AS c ON c.table_schema = tc.constraint_schema
+        AND tc.table_name = c.table_name
+        AND ccu.column_name = c.column_name
+        WHERE constraint_type = 'PRIMARY KEY'
+        AND tc.table_name = '#{table}'
+        """)
 
       {:ok, description} =
-        repo.query(
-          "SELECT column_name, data_type FROM information_schema.columns WHERE table_name ='#{
-            table
-          }'"
-        )
+        repo.query("""
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name ='#{table}'
+        """)
 
       columns =
         Enum.map(description.rows, fn [column_name, column_type] ->
@@ -217,7 +227,8 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
         end)
 
       content =
-        EEx.eval_string(@template,
+        @template
+        |> EEx.eval_string(
           app: Mix.Project.config()[:app] |> Atom.to_string() |> String.capitalize(),
           table: table,
           module_name: to_camelcase(table),
