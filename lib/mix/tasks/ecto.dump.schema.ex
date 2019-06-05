@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
   @template ~s"""
   defmodule <%= app <> "." <> module_name %> do
-    use <%= app %>, :model
+    use <%= app %>.Schema
 
     #IF PRIMARY KEY IS NOT `id` OR YOU HAVE MULTIPLE PRIMARY KEYS -> UNCOMMENT THE FOLLOWING LINE
     #@primary_key false
