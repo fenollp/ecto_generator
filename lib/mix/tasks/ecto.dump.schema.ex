@@ -268,6 +268,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp get_type("year"), do: ":string"
 
   # TODO: allow user-defined behavior here
+  defp get_type("json"), do: ":string"
   defp get_type("user-defined"), do: ":string"
 
   # defp get_type(type) do
