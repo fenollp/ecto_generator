@@ -8,14 +8,15 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   Dump models from repos
 
   ## Example:
-      mix ecto.dump.models
+   mix ecto.dump.models
+
+  ## Options:
+  --app <MyAppWeb>
   """
 
-  @mysql "mysql"
-  @postgres "postgres"
   @template ~s"""
   defmodule <%= app <> "." <> module_name %> do
-    use <%= app %>Web, :model
+    use <%= app %>, :model
 
     #IF PRIMARY KEY IS NOT `id` OR YOU HAVE MULTIPLE PRIMARY KEYS -> UNCOMMENT THE FOLLOWING LINE
     #@primary_key false
@@ -25,34 +26,43 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   end
   """
 
-  @spec parse_repo([term]) :: [Ecto.Repo.t()]
-  defp parse_repo(args) do
-    parse_repo(args, [])
+  defstruct repos: [],
+            app: nil
+
+  defp defaults do
+    %__MODULE__{}
+    |> (&%{&1 | app: Mix.Project.config()[:app] |> Atom.to_string() |> String.capitalize()}).()
   end
 
-  defp parse_repo([key, value | t], acc) when key in ~w(--repo -r) do
-    parse_repo(t, [Module.concat([value]) | acc])
+  defp parse([], acc), do: acc
+  defp parse(["--repo" | rest], acc), do: parse(["-r" | rest], acc)
+
+  defp parse([key = "-" <> _, value | rest], acc = %__MODULE__{}) do
+    case {key, value} do
+      {"-r", repo} ->
+        parse(rest, %{acc | repos: [Module.concat([repo]) | acc.repos]})
+
+      {"--app", app} ->
+        parse(rest, %{acc | app: :"#{app}"})
+    end
   end
 
-  defp parse_repo([_ | t], acc) do
-    parse_repo(t, acc)
-  end
-
-  defp parse_repo([], []) do
-    app = Mix.Project.config()[:app]
-
+  defp ensure_repos(repos, args) do
     cond do
-      repos = Application.get_env(app, :ecto_repos) ->
+      length(repos) > 0 ->
+        repos
+
+      repos = Application.get_env(args.app, :ecto_repos) ->
         repos
 
       Map.has_key?(Mix.Project.deps_paths(), :ecto) ->
         Mix.shell().error("""
-        warning: could not find repositories for application #{inspect(app)}.
+        Warning: could not find repositories for application #{inspect(args.app)}.
 
         You can avoid this warning by passing the -r flag or by setting the
         repositories managed by this application in your config/config.exs:
 
-            config #{inspect(app)}, ecto_repos: [...]
+            config #{inspect(args.app)}, ecto_repos: [...]
 
         The configuration may be an empty list if it does not define any repo.
         """)
@@ -64,16 +74,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end
   end
 
-  defp parse_repo([], acc) do
-    Enum.reverse(acc)
-  end
-
   defp ensure_repo(repo, args) do
     Mix.Task.run("loadpaths", args)
-
-    unless "--no-compile" in args do
-      Mix.Project.compile(args)
-    end
+    Mix.Project.compile(args)
 
     case Code.ensure_compiled(repo) do
       {:module, _} ->
@@ -112,26 +115,24 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
   @doc false
   def run(args) do
-    args
-    |> parse_repo()
+    args = parse(args, defaults())
+
+    args.repos
+    |> ensure_repos(args)
     |> Enum.each(fn repo ->
       ensure_repo(repo, [])
       ensure_started(repo, [])
 
-      driver =
-        repo.__adapter__
-        |> Atom.to_string()
-        |> String.downcase()
-        |> String.split(".")
-        |> List.last()
-
-      IO.puts("Driver: #{driver}")
-
-      generate_models(driver, repo)
+      repo.__adapter__()
+      |> Atom.to_string()
+      |> String.downcase()
+      |> String.split(".")
+      |> List.last()
+      |> generate_models(repo, args)
     end)
   end
 
-  defp generate_models(driver, repo) when driver == @mysql do
+  defp generate_models("mysql", repo, args) do
     with config <- repo.config,
          true <- Keyword.keyword?(config),
          {:ok, database} <- Keyword.fetch(config, :database) do
@@ -159,7 +160,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
         content =
           @template
           |> EEx.eval_string(
-            app: Mix.Project.config()[:app] |> Atom.to_string() |> String.capitalize(),
+            app: args.app,
             table: table,
             module_name: to_camelcase(table),
             columns: columns
@@ -170,7 +171,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end
   end
 
-  defp generate_models(driver, repo) when driver == @postgres do
+  defp generate_models("postgres", repo, _args) do
     {:ok, result} =
       repo.query("""
       SELECT table_name
@@ -225,10 +226,6 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
       write_model(table, content)
     end)
-  end
-
-  defp generate_models(driver, repo) do
-    IO.puts("#{driver} is not yet implemented inspect #{repo}")
   end
 
   defp write_model(table, content) do
