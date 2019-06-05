@@ -133,42 +133,42 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   end
 
   defp generate_models("mysql", repo, args) do
-    with config <- repo.config,
-         true <- Keyword.keyword?(config),
-         {:ok, database} <- Keyword.fetch(config, :database) do
-      {:ok, result} =
+    config = repo.config
+    true = Keyword.keyword?(config)
+    {:ok, database} = Keyword.fetch(config, :database)
+
+    {:ok, result} =
+      repo.query("""
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = '#{database}'
+      """)
+
+    Enum.each(result.rows, fn [table] ->
+      {:ok, description} =
         repo.query("""
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = '#{database}'
+        SELECT COLUMN_NAME, DATA_TYPE, CASE WHEN `COLUMN_KEY` = 'PRI' THEN '1' ELSE NULL END AS primary_key
+        FROM information_schema.columns
+        WHERE table_name= '#{table}'
+        AND table_schema='#{database}'
         """)
 
-      Enum.each(result.rows, fn [table] ->
-        {:ok, description} =
-          repo.query("""
-          SELECT COLUMN_NAME, DATA_TYPE, CASE WHEN `COLUMN_KEY` = 'PRI' THEN '1' ELSE NULL END AS primary_key
-          FROM information_schema.columns
-          WHERE table_name= '#{table}'
-          AND table_schema='#{database}'
-          """)
+      columns =
+        Enum.map(description.rows, fn [column_name, column_type, is_primary] ->
+          {column_name, get_type(column_type), is_primary}
+        end)
 
-        columns =
-          Enum.map(description.rows, fn [column_name, column_type, is_primary] ->
-            {column_name, get_type(column_type), is_primary}
-          end)
+      content =
+        @template
+        |> EEx.eval_string(
+          app: args.app,
+          table: table,
+          module_name: to_camelcase(table),
+          columns: columns
+        )
 
-        content =
-          @template
-          |> EEx.eval_string(
-            app: args.app,
-            table: table,
-            module_name: to_camelcase(table),
-            columns: columns
-          )
-
-        write_model(table, content)
-      end)
-    end
+      write_model(table, content)
+    end)
   end
 
   defp generate_models("postgres", repo, _args) do
@@ -268,9 +268,13 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp get_type("year"), do: ":string"
 
   # TODO: allow user-defined behavior here
+  defp get_type("character varying"), do: ":string"
+  defp get_type("inet"), do: ":string"
   defp get_type("json"), do: ":string"
   defp get_type("jsonb"), do: ":string"
+  defp get_type("oid"), do: ":string"
   defp get_type("user-defined"), do: ":string"
+  defp get_type("uuid"), do: ":string"
 
   # defp get_type(type) do
   #   IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
