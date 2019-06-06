@@ -8,29 +8,82 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   Dump models from repos
 
   ## Example:
-   mix ecto.dump.models
+   mix ecto.dump.schema --app ecto_panda \
+      --prefixes pubg,lol,csgo,dota2,ow \
+      --not-prefixes league,match,player,serie,team,tournament,winner \
+      --inserted_at :created_at \
+      --datetime :utc_timestamp_usec \
+      --except-tables '^pghero'
 
   ## Options:
   --app <MyAppWeb>
+  --only-tables, --except-tables <REGEXP>
+  --prefixes <PREFIXES>      Comma separated table name prefixes to turn into subnamespaces
+  --not-prefixes <PREFIXES>  Comma separated table name prefixes to not turn into subnamespaces
+  --inserted_at <FIELD>      Name of inserted_at timestamp field
+  --datetime <TYPE>          What to replace datetime types with
   """
 
   @template ~s"""
-  defmodule <%= app <> "." <> module_name %> do
+  defmodule <%= module %> do
     use <%= app %>.Schema
 
-    schema "<%= table %>" do<%= for {name, type, primary?} <- columns do %><%=
-     if name != "id" do %>
-      field :<%= String.downcase(name) %>, <%= type %><%= if primary? do %>, primary_key: true<% end %><% end %><% end %>
+    schema "<%= table %>" do<%=
+    for c=%{kind: :belongs, trimmed: name} <- columns do %>
+      belongs_to :<%= name %>, <%= c.trimmed_module %><% end %><%=
+    for %{kind: :field, name: name, type: type, pkey?: primary?} <- columns do %>
+      field :<%= name %>, <%= type %><%= if primary? do %>, primary_key: true<% end %><% end %><%=
+    for %{kind: :timestamp, inserted_at: inserted_at} <- columns do %>
+      timestamp<%= if inserted_at do %> inserted_at: <%= inserted_at %><% end %><% end %>
     end
   end
   """
+  @t_integer [
+    "bigint",
+    "int",
+    "integer",
+    "mediumint",
+    "smallint",
+    "tinyint"
+  ]
+  @t_boolean [
+    "bit varying",
+    "bit",
+    "boolean"
+  ]
+  @t_string [
+    "char",
+    "character",
+    "longtext",
+    "mediumtext",
+    "text",
+    "tinytext",
+    "varchar",
+    "year"
+  ]
+  @t_float [
+    "decimal",
+    "double",
+    "float",
+    "real"
+  ]
+  @t_datetime [
+    "time",
+    "timestamp"
+  ]
 
   defstruct repos: [],
+            prefixes: [],
+            not_prefixes: [],
+            inserted_at: ":inserted_at",
+            datetime: ":utc_timestamp",
+            only: nil,
+            except: nil,
             app: nil
 
   defp defaults do
     %__MODULE__{}
-    |> (&%{&1 | app: Mix.Project.config()[:app] |> Atom.to_string() |> String.capitalize()}).()
+    |> (&%{&1 | app: "#{Mix.Project.config()[:app]}" |> String.capitalize()}).()
   end
 
   defp parse([], acc), do: acc
@@ -43,6 +96,24 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
       {"--app", app} ->
         parse(rest, %{acc | app: :"#{app}"})
+
+      {"--prefixes", prefixes} ->
+        parse(rest, %{acc | prefixes: prefixes |> String.split(",")})
+
+      {"--not-prefixes", prefixes} ->
+        parse(rest, %{acc | not_prefixes: prefixes |> String.split(",")})
+
+      {"--datetime", datetime} ->
+        parse(rest, %{acc | datetime: datetime})
+
+      {"--inserted_at", inserted_at} ->
+        parse(rest, %{acc | inserted_at: inserted_at})
+
+      {"--only-tables", only} ->
+        parse(rest, %{acc | only: Regex.compile!(only)})
+
+      {"--except-tables", except} ->
+        parse(rest, %{acc | except: Regex.compile!(except)})
     end
   end
 
@@ -131,7 +202,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end)
   end
 
-  defp generate_models("mysql", repo, args) do
+  defp generate_models("mysql", repo, args = %__MODULE__{only: only, except: except}) do
     config = repo.config
     true = Keyword.keyword?(config)
     {:ok, database} = Keyword.fetch(config, :database)
@@ -143,7 +214,17 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
       WHERE table_schema = '#{database}'
       """)
 
-    Enum.each(result.rows, fn [table] ->
+    result.rows
+    |> Enum.map(&Kernel.hd/1)
+    |> case do
+      rows when is_nil(only) -> rows
+      rows -> rows |> Enum.filter(&Regex.match?(only, &1))
+    end
+    |> case do
+      rows when is_nil(except) -> rows
+      rows -> rows |> Enum.reject(&Regex.match?(except, &1))
+    end
+    |> Enum.each(fn table ->
       {:ok, description} =
         repo.query("""
         SELECT COLUMN_NAME, DATA_TYPE, CASE WHEN `COLUMN_KEY` = 'PRI' THEN '1' ELSE NULL END AS primary_key
@@ -154,23 +235,23 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
       columns =
         Enum.map(description.rows, fn [column_name, column_type, is_primary] ->
-          {column_name, get_type(column_type), is_primary}
+          %{
+            kind: kind(args, column_name, column_type),
+            name: column_name,
+            type: get_type(column_type),
+            pkey?: is_primary
+          }
         end)
 
-      content =
-        @template
-        |> EEx.eval_string(
-          app: args.app,
-          table: table,
-          module_name: to_camelcase(table),
-          columns: columns
-        )
-
-      write_model(table, content)
+      args
+      |> model(
+        table: table,
+        columns: columns
+      )
     end)
   end
 
-  defp generate_models("postgres", repo, _args) do
+  defp generate_models("postgres", repo, args = %__MODULE__{only: only, except: except}) do
     {:ok, result} =
       repo.query("""
       SELECT table_name
@@ -178,7 +259,17 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
        WHERE table_schema = 'public'
       """)
 
-    Enum.each(result.rows, fn [table] ->
+    result.rows
+    |> Enum.map(&Kernel.hd/1)
+    |> case do
+      rows when is_nil(only) -> rows
+      rows -> rows |> Enum.filter(&Regex.match?(only, &1))
+    end
+    |> case do
+      rows when is_nil(except) -> rows
+      rows -> rows |> Enum.reject(&Regex.match?(except, &1))
+    end
+    |> Enum.each(fn table ->
       {:ok, primary_keys} =
         repo.query("""
         SELECT c.column_name
@@ -208,63 +299,116 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
           if found == nil do
             [column_type | _] = column_type |> String.downcase() |> String.split()
-            {column_name, get_type(column_type), nil}
+
+            %{
+              kind: kind(args, column_name, column_type),
+              name: column_name,
+              type: get_type(column_type),
+              pkey?: nil
+            }
           else
-            {column_name, get_type(column_type), true}
+            %{
+              kind: kind(args, column_name, column_type),
+              name: column_name,
+              type: get_type(column_type),
+              pkey?: true
+            }
           end
         end)
 
-      content =
-        @template
-        |> EEx.eval_string(
-          app: Mix.Project.config()[:app] |> Atom.to_string() |> Macro.camelize(),
-          table: table,
-          module_name: to_camelcase(table),
-          columns: columns
-        )
-
-      write_model(table, content)
+      args
+      |> model(
+        table: table,
+        columns: columns
+      )
     end)
   end
 
-  defp write_model(table, content) do
-    filename = "lib/#{Mix.Project.config()[:app]}/models/#{table}.ex"
+  defp model(args, opts) do
+    app = modularize("#{args.app}")
+    table = opts |> Keyword.fetch!(:table)
+    {cols, opts} = opts |> Keyword.pop(:columns)
+    prx = args.prefixes |> Enum.filter(&(table |> String.starts_with?("#{&1}_")))
+
+    prefix =
+      case prx do
+        [prefix] -> "#{prefix}." |> String.capitalize()
+        [] -> ""
+      end
+
+    module =
+      if prefix != "" do
+        "#{app}.#{prefix}#{table |> String.replace_prefix("#{hd(prx)}_", "") |> modularize()}"
+      else
+        "#{app}.#{table |> modularize()}"
+      end
+
+    cols =
+      cols
+      |> Enum.reject(&(&1.name == "id"))
+      |> Enum.sort_by(& &1.name)
+      |> Enum.flat_map(fn
+        c = %{kind: :belongs, name: n} ->
+          trimmed = n |> String.replace_suffix("_id", "")
+          prefix? = [] == args.not_prefixes |> Enum.filter(&(trimmed |> String.starts_with?(&1)))
+          prefix = if prefix != "" && prefix?, do: prefix, else: ""
+
+          c
+          |> Map.put(:trimmed, trimmed)
+          |> Map.put(:trimmed_module, "#{app}.#{prefix}#{modularize(trimmed)}")
+          |> List.wrap()
+
+        %{kind: :field, name: name} when ":" <> name == :erlang.map_get(:inserted_at, args) ->
+          []
+
+        %{kind: :field, name: "updated_at"}
+        when :erlang.map_get(:inserted_at, args) == :erlang.map_get(:inserted_at, %__MODULE__{}) ->
+          [%{kind: :timestamp}]
+
+        %{kind: :field, name: "updated_at"} ->
+          [%{kind: :timestamp, inserted_at: args.inserted_at}]
+
+        c = %{kind: :field, type: t}
+        when t in @t_datetime and
+               :erlang.map_get(:datetime, args) != :erlang.map_get(:datetime, %__MODULE__{}) ->
+          [%{c | type: args.datetime}]
+
+        c ->
+          [c]
+      end)
+
+    @template
+    |> EEx.eval_string([app: app, module: module, columns: cols] ++ opts)
+    |> write_model(table, args)
+  end
+
+  defp write_model(content, table, args) do
+    filename = "lib/#{args.app}/models/#{table}.ex"
     filename |> Path.dirname() |> File.mkdir_p!()
     filename |> File.write!(content)
-    IO.puts("\e[0;35m  #{filename} was generated")
+    IO.puts("#{filename} was generated")
   end
 
-  defp to_camelcase(table_name) do
-    Enum.map_join(String.split(table_name, "_"), "", &String.capitalize(&1))
+  defp modularize(table_name) do
+    String.split(table_name, "_")
+    |> Enum.map_join("", &String.capitalize/1)
   end
 
-  defp get_type("bigint"), do: ":integer"
-  defp get_type("bit varying"), do: ":boolean"
-  defp get_type("bit"), do: ":boolean"
+  defp kind(_args, field, _type) do
+    cond do
+      field |> String.ends_with?("_id") -> :belongs
+      true -> :field
+    end
+  end
+
   defp get_type("blob"), do: ":binary"
-  defp get_type("boolean"), do: ":boolean"
-  defp get_type("char"), do: ":string"
-  defp get_type("character"), do: ":string"
+  defp get_type(boolean) when boolean in @t_boolean, do: ":boolean"
+  defp get_type(datetime) when datetime in @t_datetime, do: %__MODULE__{}.datetime
+  defp get_type(float) when float in @t_float, do: ":float"
+  defp get_type(integer) when integer in @t_integer, do: ":integer"
+  defp get_type(string) when string in @t_string, do: ":string"
   defp get_type("date"), do: "Date"
-  defp get_type("datetime"), do: "DateTime"
-  defp get_type("decimal"), do: ":float"
-  defp get_type("double"), do: ":float"
-  defp get_type("float"), do: ":float"
-  defp get_type("int"), do: ":integer"
-  defp get_type("integer"), do: ":integer"
-  defp get_type("longtext"), do: ":string"
-  defp get_type("mediumint"), do: ":integer"
-  defp get_type("mediumtext"), do: ":string"
   defp get_type("numeric"), do: "Decimal"
-  defp get_type("real"), do: ":float"
-  defp get_type("smallint"), do: ":integer"
-  defp get_type("text"), do: ":string"
-  defp get_type("time"), do: "DateTime"
-  defp get_type("timestamp"), do: "DateTime"
-  defp get_type("tinyint"), do: ":integer"
-  defp get_type("tinytext"), do: ":string"
-  defp get_type("varchar"), do: ":string"
-  defp get_type("year"), do: ":string"
 
   # TODO: allow user-defined behavior here
   defp get_type("character varying"), do: ":string"
@@ -274,9 +418,4 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp get_type("oid"), do: ":string"
   defp get_type("user-defined"), do: ":string"
   defp get_type("uuid"), do: ":string"
-
-  # defp get_type(type) do
-  #   IO.puts("\e[0;31m  #{type} is not supported ... Fallback to :string")
-  #   ":string"
-  # end
 end
