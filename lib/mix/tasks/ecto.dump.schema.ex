@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     for %{kind: :field, name: name, type: type, pkey?: primary?} <- columns do %>
       field :<%= name %>, <%= type %><%= if primary? do %>, primary_key: true<% end %><% end %><%=
     for %{kind: :timestamp, inserted_at: inserted_at} <- columns do %>
-      timestamp<%= if inserted_at do %> inserted_at: <%= inserted_at %><% end %><% end %>
+      timestamps<%= if inserted_at do %> inserted_at: <%= inserted_at %><% end %><% end %>
     end
   end
   """
