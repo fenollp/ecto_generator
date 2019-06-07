@@ -21,8 +21,7 @@ defmodule EctoGenerator.Mixfile do
 
   defp deps,
     do: [
-      # {:inflex, "~> 1.10"},
-      {:inflex, github: "nurugger07/inflex"},
+      {:inflex, "~> 1.10"},
       {:ex_doc, "~> 0.14", only: :dev, runtime: false}
     ]
 
