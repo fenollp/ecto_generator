@@ -12,7 +12,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
       --prefixes pubg,lol,csgo,dota2,ow \
       --not-prefixes league,match,player,serie,team,tournament,winner \
       --inserted_at :created_at \
-      --datetime :utc_timestamp_usec \
+      --datetime :utc_datetime_usec \
       --except-tables '^pghero'
 
   ## Options:
@@ -76,7 +76,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
             prefixes: [],
             not_prefixes: [],
             inserted_at: ":inserted_at",
-            datetime: ":utc_timestamp",
+            datetime: ":utc_datetime",
             only: nil,
             except: nil,
             app: nil
