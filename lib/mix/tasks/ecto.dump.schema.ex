@@ -421,7 +421,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp get_type(integer) when integer in @t_integer, do: ":integer"
   defp get_type(string) when string in @t_string, do: ":string"
   defp get_type("date"), do: "Date"
-  defp get_type("numeric"), do: "Decimal"
+  defp get_type("numeric"), do: ":decimal"
 
   # TODO: allow user-defined behavior here
   defp get_type("character varying"), do: ":string"
