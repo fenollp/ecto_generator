@@ -83,7 +83,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
   defp defaults do
     %__MODULE__{}
-    |> (&%{&1 | app: "#{Mix.Project.config()[:app]}" |> String.capitalize()}).()
+    |> (&%{&1 | app: Mix.Project.config()[:app]}).()
   end
 
   defp parse([], acc), do: acc
@@ -379,11 +379,11 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
     @template
     |> EEx.eval_string([app: app, module: module, columns: cols] ++ opts)
-    |> write_model(table, args)
+    |> write_model(singularize(table), args)
   end
 
-  defp write_model(content, table, args) do
-    filename = "lib/#{args.app}/models/#{table}.ex"
+  defp write_model(content, name, args) do
+    filename = "lib/#{args.app}/models/#{name}.ex"
     filename |> Path.dirname() |> File.mkdir_p!()
     filename |> File.write!(content)
     IO.puts("#{filename} was generated")
@@ -392,6 +392,19 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
   defp modularize(table_name) do
     String.split(table_name, "_")
     |> Enum.map_join("", &String.capitalize/1)
+    |> singularize()
+  end
+
+  defp singularize(str) do
+    s = str |> String.downcase()
+
+    cond do
+      s |> String.ends_with?("series") ->
+        str |> String.replace_suffix("ries", "rie")
+
+      true ->
+        str |> Inflex.singularize()
+    end
   end
 
   defp kind(_args, field, _type) do
