@@ -407,9 +407,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end
   end
 
-  defp kind(_args, field, _type) do
+  defp kind(_args, field, type) do
     cond do
-      field |> String.ends_with?("_id") -> :belongs
+      field |> String.ends_with?("_id") && type in @t_integer -> :belongs
       true -> :field
     end
   end
