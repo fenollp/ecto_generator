@@ -29,7 +29,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     use <%= app %>.Schema
 
     schema "<%= table %>" do<%=
-    for c=%{kind: :belongs, trimmed: name} <- columns do %>
+    for c=%{kind: :belongs, name: name} <- columns do %>
       belongs_to :<%= name %>, <%= c.trimmed_module %><% end %><%=
     for %{kind: :field, name: name, type: type, pkey?: primary?} <- columns do %>
       field :<%= name %>, <%= type %><%= if primary? do %>, primary_key: true<% end %><% end %><%=
