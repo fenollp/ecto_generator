@@ -380,7 +380,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
 
     @template
     |> EEx.eval_string([app: app, module: module, columns: cols] ++ opts)
-    |> write_model(singularize(table), args)
+    |> write_model(modularize(table, false), args)
   end
 
   defp write_model(content, name, args) do
@@ -390,16 +390,28 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     IO.puts("#{filename} was generated")
   end
 
-  defp modularize(table_name) do
-    String.split(table_name, "_")
-    |> Enum.map_join("", &String.capitalize/1)
-    |> singularize()
+  defp modularize(table_name, caps? \\ true) do
+    table_name
+    |> String.split("_")
+    |> Enum.map(&singularize/1)
+    |> case do
+      enum when caps? ->
+        enum
+        |> Enum.map(&String.capitalize/1)
+        |> Enum.join()
+
+      enum ->
+        enum |> Enum.join("_")
+    end
   end
 
   defp singularize(str) do
     s = str |> String.downcase()
 
     cond do
+      s == "odds" ->
+        str
+
       s |> String.ends_with?("series") ->
         str |> String.replace_suffix("ries", "rie")
 
