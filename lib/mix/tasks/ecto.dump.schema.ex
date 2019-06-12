@@ -69,6 +69,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     "real"
   ]
   @t_datetime [
+    ":utc_datetime",
     "time",
     "timestamp"
   ]
