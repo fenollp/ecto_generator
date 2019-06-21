@@ -39,6 +39,34 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     end
   end
   """
+
+  @migrations ~s"""
+  defmodule <%= app %>.Repo.Migrations.AddAllTables do
+    use Ecto.Migration
+
+    def change do<%=
+    for {table, columns} <- tables do %>
+      create table "<%= table %>" do<%=
+      for %{kind: kind, name: name, type: type} <- columns when kind in [:belongs,:field] do %>
+        add <%= name %>, <%= type %>
+      <% end %><%=
+      for %{kind: :timestamp, inserted_at: inserted_at} <- columns do %>
+        timestamps<%= if inserted_at do %> inserted_at: <%= inserted_at %><% end %><% end %>
+      <% end %>
+      end<% end %>
+    end
+
+      create table("pubg_games") do
+        add(:winner_type, :string)
+        add(:position, :integer)
+        add(:begin_at, :utc_datetime_usec)
+        add(:finished, :boolean)
+        timestamps(inserted_at: :created_at)
+      end
+    end
+  end
+  """
+
   @t_integer [
     "bigint",
     "int",
@@ -201,6 +229,7 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
       |> String.split(".")
       |> List.last()
       |> generate_models(repo, args)
+      |> generate_migrations(args)
     end)
   end
 
@@ -216,17 +245,19 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
       WHERE table_schema = '#{database}'
       """)
 
-    result.rows
-    |> Enum.map(&Kernel.hd/1)
-    |> case do
-      rows when is_nil(only) -> rows
-      rows -> rows |> Enum.filter(&Regex.match?(only, &1))
-    end
-    |> case do
-      rows when is_nil(except) -> rows
-      rows -> rows |> Enum.reject(&Regex.match?(except, &1))
-    end
-    |> Enum.each(fn table ->
+    tables =
+      result.rows
+      |> Enum.map(&Kernel.hd/1)
+      |> case do
+        rows when is_nil(only) -> rows
+        rows -> rows |> Enum.filter(&Regex.match?(only, &1))
+      end
+      |> case do
+        rows when is_nil(except) -> rows
+        rows -> rows |> Enum.reject(&Regex.match?(except, &1))
+      end
+
+    for table <- tables, into: %{} do
       {:ok, description} =
         repo.query("""
         SELECT COLUMN_NAME, DATA_TYPE, CASE WHEN `COLUMN_KEY` = 'PRI' THEN '1' ELSE NULL END AS primary_key
@@ -245,12 +276,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
           }
         end)
 
-      args
-      |> model(
-        table: table,
-        columns: columns
-      )
-    end)
+      args |> model(table: table, columns: columns)
+      {table, columns}
+    end
   end
 
   defp generate_models("postgres", repo, args = %__MODULE__{only: only, except: except}) do
@@ -261,17 +289,19 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
        WHERE table_schema = 'public'
       """)
 
-    result.rows
-    |> Enum.map(&Kernel.hd/1)
-    |> case do
-      rows when is_nil(only) -> rows
-      rows -> rows |> Enum.filter(&Regex.match?(only, &1))
-    end
-    |> case do
-      rows when is_nil(except) -> rows
-      rows -> rows |> Enum.reject(&Regex.match?(except, &1))
-    end
-    |> Enum.each(fn table ->
+    tables =
+      result.rows
+      |> Enum.map(&Kernel.hd/1)
+      |> case do
+        rows when is_nil(only) -> rows
+        rows -> rows |> Enum.filter(&Regex.match?(only, &1))
+      end
+      |> case do
+        rows when is_nil(except) -> rows
+        rows -> rows |> Enum.reject(&Regex.match?(except, &1))
+      end
+
+    for table <- tables, into: %{} do
       {:ok, primary_keys} =
         repo.query("""
         SELECT c.column_name
@@ -318,12 +348,9 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
           end
         end)
 
-      args
-      |> model(
-        table: table,
-        columns: columns
-      )
-    end)
+      args |> model(table: table, columns: columns)
+      {table, columns}
+    end
   end
 
   defp model(args, opts) do
@@ -389,6 +416,27 @@ defmodule Mix.Tasks.Ecto.Dump.Schema do
     filename |> Path.dirname() |> File.mkdir_p!()
     filename |> File.write!(content)
     IO.puts("#{filename} was generated")
+  end
+
+  defp write_migrations(content) do
+    # From https://github.com/elixir-ecto/ecto_sql/blob/d2ce99dd6e792c092528a619c17d7092a3d44736/lib/mix/tasks/ecto.gen.migration.ex#L95
+    pad = fn
+      i when i < 10 -> <<?0, ?0 + i>>
+      i -> to_string(i)
+    end
+
+    {{y, m, d}, {hh, mm, ss}} = :calendar.universal_time()
+    timestamp = "#{y}#{pad.(m)}#{pad.(d)}#{pad.(hh)}#{pad.(mm)}#{pad.(ss)}"
+    filename = "priv/repo/migrations/#{timestamp}_add_all_tables.ex"
+    filename |> Path.dirname() |> File.mkdir_p!()
+    filename |> File.write!(content)
+    IO.puts("#{filename} was generated")
+  end
+
+  defp generate_migrations(tables = %{}, args) do
+    @migrations
+    |> EEx.eval_string(app: modularize("#{args.app}"), table: tables)
+    |> write_migrations()
   end
 
   defp modularize(table_name, caps? \\ true) do
